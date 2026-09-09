@@ -31,7 +31,8 @@ requirements:
     - meson
     - ninja
     - pkg-config
-    - python
+    - python  # [build_platform != "win-arm64"]
+    - python >=3.14  # [build_platform == "win-arm64"]
   host:
     - expat
     - freetype
