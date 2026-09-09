@@ -1,0 +1,62 @@
+name: Native Fontconfig with pending gperf
+on:
+  push:
+    branches: [codex/windows-arm64-validation]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  native-fontconfig:
+    runs-on: windows-11-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Attest runner and download build orchestration tool
+        shell: pwsh
+        run: |
+          $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+          if ($arch -ne 'Arm64') { throw "Expected native ARM64 OS, got $arch" }
+          Write-Host "OS architecture: $arch; build and target platform: win-arm64"
+          Invoke-WebRequest https://github.com/mamba-org/micromamba-releases/releases/download/1.5.10-0/micromamba-win-64 -OutFile "$env:RUNNER_TEMP\micromamba.exe"
+      - name: Retrieve exact validated gperf artifact
+        shell: cmd
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/ClayWarren/gperf-feedstock/actions/artifacts/10084942766/zip > "%RUNNER_TEMP%\gperf.zip"
+          if errorlevel 1 exit /b 1
+      - name: Verify prerequisite package
+        shell: pwsh
+        run: |
+          Expand-Archive "$env:RUNNER_TEMP\gperf.zip" "$env:RUNNER_TEMP\gperf"
+          $package = Get-ChildItem "$env:RUNNER_TEMP\gperf" -Recurse -Filter 'gperf-3.3-h5d29faa_2.conda'
+          if (@($package).Count -ne 1) { throw 'Expected exactly one gperf package' }
+          $hash = (Get-FileHash $package.FullName -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne '9f580c8227edbc579626bc829469aedef6fafa1f8e6f3e4ccb075f46fcee42a7') { throw "Unexpected gperf hash: $hash" }
+          Write-Host "Verified $($package.Name): $hash"
+          New-Item -ItemType Directory -Path C:\fontconfig-prerequisite\win-arm64 -Force | Out-Null
+          Copy-Item $package.FullName C:\fontconfig-prerequisite\win-arm64
+      - name: Build and test native Fontconfig without publishing
+        shell: cmd
+        run: |
+          set "CONDA_SUBDIR=win-64"
+          "%RUNNER_TEMP%\micromamba.exe" create -y -p C:\fontconfig-tools -c conda-forge conda-build conda-index
+          if errorlevel 1 exit /b 1
+          call C:\fontconfig-tools\condabin\conda.bat activate C:\fontconfig-tools
+          if errorlevel 1 exit /b 1
+          set "CONDA_SUBDIR=win-arm64"
+          set "CONDA_SOLVER=libmamba"
+          set "CONDA_CHANNEL_PRIORITY=strict"
+          call conda index C:\fontconfig-prerequisite
+          if errorlevel 1 exit /b 1
+          call conda build recipe -m .ci_support\win_arm64_.yaml --croot C:\fontconfig-build --output-folder C:\fontconfig-output --override-channels -c file:///C:/fontconfig-prerequisite -c conda-forge
+          if errorlevel 1 exit /b 1
+      - name: Preserve validated Fontconfig package
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-fontconfig
+          path: C:\fontconfig-output\win-arm64\fontconfig-*.conda
+          if-no-files-found: error
