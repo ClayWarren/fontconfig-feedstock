@@ -7,5 +7,5 @@ if "%target_platform%" == "win-arm64" (
   dumpbin /headers test_font_match.exe | findstr /I /C:"AA64 machine (ARM64)"
   if errorlevel 1 exit /b 1
 )
-test_font_match.exe
+test_font_match.exe "%PREFIX%\fonts\DejaVuSans.ttf"
 if errorlevel 1 exit /b 1
